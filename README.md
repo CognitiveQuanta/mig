@@ -3,5 +3,5 @@ NVIDIA only provides Helm format installation for device-plugin: https://docs.nv
 
 When in some use cases, needs to use YAML format installation.
 
-nvdp for k8s-device-plugin
+nvdp for k8s-device-plugin  
 nvfgd for gpu-feature-discovery
