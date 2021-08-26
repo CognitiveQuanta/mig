@@ -1,0 +1,358 @@
+# Source: gpu-feature-discovery/charts/node-feature-discovery/templates/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: node-feature-discovery # NFD namespace
+---
+# Source: gpu-feature-discovery/charts/node-feature-discovery/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nfd-master
+  namespace: node-feature-discovery
+  labels:
+    helm.sh/chart: node-feature-discovery-0.1.0
+    app.kubernetes.io/name: node-feature-discovery
+    app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+    app.kubernetes.io/version: "0.6.0"
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: gpu-feature-discovery/charts/node-feature-discovery/templates/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nfd-master
+  labels:
+    helm.sh/chart: node-feature-discovery-0.1.0
+    app.kubernetes.io/name: node-feature-discovery
+    app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+    app.kubernetes.io/version: "0.6.0"
+    app.kubernetes.io/managed-by: Helm
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+# when using command line flag --resource-labels to create extended resources
+# you will need to uncomment "- nodes/status"
+# - nodes/status
+  verbs:
+  - get
+  - patch
+  - update
+---
+# Source: gpu-feature-discovery/charts/node-feature-discovery/templates/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nfd-master
+  labels:
+    helm.sh/chart: node-feature-discovery-0.1.0
+    app.kubernetes.io/name: node-feature-discovery
+    app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+    app.kubernetes.io/version: "0.6.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nfd-master
+subjects:
+- kind: ServiceAccount
+  name: nfd-master
+  namespace: node-feature-discovery
+---
+# Source: gpu-feature-discovery/charts/node-feature-discovery/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nfd-master
+  namespace: node-feature-discovery
+  labels:
+    helm.sh/chart: node-feature-discovery-0.1.0
+    app.kubernetes.io/name: node-feature-discovery
+    app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+    app.kubernetes.io/version: "0.6.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    app.kubernetes.io/name: node-feature-discovery
+    app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+    app.kubernetes.io/role: master
+  ports:
+  - name: grpc
+    targetPort: grpc
+    protocol: TCP
+    port: 8080
+  type: ClusterIP
+---
+# Source: gpu-feature-discovery/charts/node-feature-discovery/templates/worker.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name:  nfd-worker
+  namespace: node-feature-discovery
+  labels:
+    helm.sh/chart: node-feature-discovery-0.1.0
+    app.kubernetes.io/name: node-feature-discovery
+    app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+    app.kubernetes.io/version: "0.6.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/role: worker
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-feature-discovery
+      app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+      app.kubernetes.io/role: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: node-feature-discovery
+        app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+        app.kubernetes.io/role: worker
+      annotations:
+        {}
+    spec:
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext:
+        {}
+      containers:
+        - name: worker
+          image: quay.io/kubernetes_incubator/node-feature-discovery:v0.6.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            {}
+          resources:
+            {}
+          env:
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          command:
+            - "nfd-worker"
+          args:
+            - "--sleep-interval=60s"
+            - --server=nfd-master:8080
+            - --options={"sources":{"pci":{"deviceLabelFields":["vendor"]}}}
+## Enable TLS authentication (1/3)
+## The example below assumes having the root certificate named ca.crt stored in
+## a ConfigMap named nfd-ca-cert, and, the TLS authentication credentials stored
+## in a TLS Secret named nfd-worker-cert
+#            - "--ca-file=/etc/kubernetes/node-feature-discovery/trust/ca.crt"
+#            - "--key-file=/etc/kubernetes/node-feature-discovery/certs/tls.key"
+#            - "--cert-file=/etc/kubernetes/node-feature-discovery/certs/tls.crt"
+          volumeMounts:
+            - name: host-boot
+              mountPath: "/host-boot"
+              readOnly: true
+            - name: host-os-release
+              mountPath: "/host-etc/os-release"
+              readOnly: true
+            - name: host-sys
+              mountPath: "/host-sys"
+            - name: source-d
+              mountPath: "/etc/kubernetes/node-feature-discovery/source.d/"
+            - name: features-d
+              mountPath: "/etc/kubernetes/node-feature-discovery/features.d/"
+## Enable TLS authentication (2/3)
+#            - name: nfd-ca-cert
+#              mountPath: "/etc/kubernetes/node-feature-discovery/trust"
+#              readOnly: true
+#            - name: nfd-worker-cert
+#              mountPath: "/etc/kubernetes/node-feature-discovery/certs"
+#              readOnly: true
+      volumes:
+        - name: host-boot
+          hostPath:
+            path: "/boot"
+        - name: host-os-release
+          hostPath:
+            path: "/etc/os-release"
+        - name: host-sys
+          hostPath:
+            path: "/sys"
+        - name: source-d
+          hostPath:
+            path: "/etc/kubernetes/node-feature-discovery/source.d/"
+        - name: features-d
+          hostPath:
+            path: "/etc/kubernetes/node-feature-discovery/features.d/"
+## Enable TLS authentication (3/3)
+#        - name: nfd-ca-cert
+#          configMap:
+#            name: nfd-ca-cert
+#        - name: nfd-worker-cert
+#          secret:
+#            secretName: nfd-worker-cert
+---
+# Source: gpu-feature-discovery/templates/daemonset.yml
+# Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gpu-feature-discovery-1617645188
+  namespace: node-feature-discovery
+  labels:
+    helm.sh/chart: gpu-feature-discovery-0.4.1
+    app.kubernetes.io/name: gpu-feature-discovery
+    app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+    app.kubernetes.io/version: "0.4.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gpu-feature-discovery
+      app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gpu-feature-discovery
+        app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+    spec:
+      # Mark this pod as a critical add-on; when enabled, the critical add-on
+      # scheduler reserves resources for critical add-on pods so that they can
+      # be rescheduled after a failure.
+      # See https://kubernetes.io/docs/tasks/administer-cluster/guaranteed-scheduling-critical-addon-pods/
+      priorityClassName: "system-node-critical"
+      securityContext:
+        {}
+      containers:
+        - image: nvcr.io/nvidia/gpu-feature-discovery:v0.4.1
+          imagePullPolicy: IfNotPresent
+          name: gpu-feature-discovery
+          env:
+            - name: GFD_FAIL_ON_INIT_ERROR
+              value: "true"
+            - name: GFD_MIG_STRATEGY
+              value: "single"
+            - name: GFD_NO_TIMESTAMP
+              value: "false"
+            - name: GFD_SLEEP_INTERVAL
+              value: "60s"
+            - name: NVIDIA_MIG_MONITOR_DEVICES
+              value: all
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: output-dir
+              mountPath: "/etc/kubernetes/node-feature-discovery/features.d"
+            - name: dmi-product-name
+              mountPath: "/sys/class/dmi/id/product_name"
+      volumes:
+        - name: output-dir
+          hostPath:
+            path: "/etc/kubernetes/node-feature-discovery/features.d"
+        - name: dmi-product-name
+          hostPath:
+            path: "/sys/class/dmi/id/product_name"
+      nodeSelector:
+        feature.node.kubernetes.io/pci-10de.present: "true"
+---
+# Source: gpu-feature-discovery/charts/node-feature-discovery/templates/master.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfd-master
+  namespace: node-feature-discovery
+  labels:
+    helm.sh/chart: node-feature-discovery-0.1.0
+    app.kubernetes.io/name: node-feature-discovery
+    app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+    app.kubernetes.io/version: "0.6.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/role: master
+spec:
+  replicas: 
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-feature-discovery
+      app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+      app.kubernetes.io/role: master
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: node-feature-discovery
+        app.kubernetes.io/instance: gpu-feature-discovery-1617645188
+        app.kubernetes.io/role: master
+      annotations:
+        {}
+    spec:
+      serviceAccountName: nfd-master
+      securityContext:
+        {}
+      containers:
+        - name: master
+          image: quay.io/kubernetes_incubator/node-feature-discovery:v0.6.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            {}
+          resources:
+            {}
+          env:
+          - name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          ports:
+          - name: grpc
+            containerPort: 8080
+          command:
+            - "nfd-master"
+          args:
+            - --extra-label-ns=nvidia.com
+## Enable TLS authentication
+## The example below assumes having the root certificate named ca.crt stored in
+## a ConfigMap named nfd-ca-cert, and, the TLS authentication credentials stored
+## in a TLS Secret named nfd-master-cert.
+## Additional hardening can be enabled by specifying --verify-node-name in
+## args, in which case every nfd-worker requires a individual node-specific
+## TLS certificate.
+#            - "--ca-file=/etc/kubernetes/node-feature-discovery/trust/ca.crt"
+#            - "--key-file=/etc/kubernetes/node-feature-discovery/certs/tls.key"
+#            - "--cert-file=/etc/kubernetes/node-feature-discovery/certs/tls.crt"
+#          volumeMounts:
+#            - name: nfd-ca-cert
+#              mountPath: "/etc/kubernetes/node-feature-discovery/trust"
+#              readOnly: true
+#            - name: nfd-master-cert
+#              mountPath: "/etc/kubernetes/node-feature-discovery/certs"
+#              readOnly: true
+#      volumes:
+#        - name: nfd-ca-cert
+#          configMap:
+#            name: nfd-ca-cert
+#        - name: nfd-master-cert
+#          secret:
+#            secretName: nfd-master-cert
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/master
+                operator: In
+                values:
+                - ""
+            weight: 1
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Equal
+          value: ""
+
